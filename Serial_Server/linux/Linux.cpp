@@ -2,15 +2,16 @@
 //
 // Project:     XTIDE Universal BIOS, Serial Port Server
 //
-// File:        Win32.cpp - Microsoft Windows 32-bit application
+// File:        Linux.cpp - Linux application
 //
-// This file contains the entry point for the Win32 version of the server.
+// This file contains the entry point for the Linux version of the server.
 // It also handles log reporting, timers, and command line parameter parsing.
 //
 
 //
 // XTIDE Universal BIOS and Associated Tools
 // Copyright (C) 2009-2010 by Tomi Tilli, 2011-2013 by XTIDE Universal BIOS Team.
+// Linux port created by Chris Osborn <fozztexx@fozztexx.com> 6 Aug 2015
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -28,28 +29,30 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <stdarg.h>
+#include <ctype.h>
+#include <time.h>
 
-#include "../library/library.h"
-#include "../library/flatimage.h"
+#include "../library/Library.h"
+#include "../library/FlatImage.h"
 
-#include "../../XTIDE_Universal_BIOS/inc/version.inc"
+#include "../library/Version.inc"
 
-char *bannerStrings[] = {
+const char *bannerStrings[] = {
 	"SerDrive - XTIDE Universal BIOS Serial Drive Server",
-	"Copyright (C) 2012-2013 by XTIDE Universal BIOS Team",
+	"Copyright (C) 2012-2022 by XTIDE Universal BIOS Team",
+	"Linux port created by Chris Osborn <fozztexx@fozztexx.com> 6 Aug 2015",
 	"Released under GNU GPL v2, with ABSOLUTELY NO WARRANTY",
 	ROM_VERSION_STRING,
 	"",
 	NULL };
 
-char *usageStrings[] = {
+const char *usageStrings[] = {
 	"This is free software, and you are welcome to redistribute it under certain",
 	"conditions.  For more license details, see the LICENSE.TXT file included with",
 	"this distribution, visit the XTIDE Universal BIOS wiki (address below), or",
  	"http://www.gnu.org/licenses/gpl-2.0.html",
 	"",
-	"Visit the wiki on http://code.google.com/p/xtideuniversalbios for detailed",
-	"serial drive usage directions.",
+	"Visit the wiki on http://xtideuniversalbios.org for detailed usage directions.",
 	"",
 	"Usage: SerDrive [options] imagefile [[slave-options] slave-imagefile]",
 	"",
@@ -65,8 +68,6 @@ char *usageStrings[] = {
 	"                      (must begin with \"\\\\\", default is \"" PIPENAME "\")",
 	"",
 	"  -c COMPortNumber    COM Port to use (default is first found)",
-	"                      Available COM ports on this system are:",
- "COM                          ",
 	"",
 	"  -b BaudRate         Baud rate to use on the COM port, with client machine",
 	"                      rate multiplier in effect:",
@@ -91,23 +92,16 @@ char *usageStrings[] = {
 	"",
 	"Floppy images may also be used.  Image size must be exactly the same size",
 	"as a 2.88MB, 1.44MB, 1.2MB, 720KB, 360KB, 320KB, 180KB, or 160KB disk.",
+	"Microsoft DMF (Distribution Media Format) images are also supported.",
 	"Floppy images must be the last disks discovered by the BIOS, and only",
 	"two floppy drives are supported by the BIOS at a time.",
 	NULL };
 
-void usagePrint( char *strings[] )
+void usagePrint( const char *strings[] )
 {
 	for( int t = 0; strings[t]; t++ )
 	{
-		if( !strncmp( strings[t], "COM", 3 ) )
-		{
-			char logbuff[ 1024 ];
-
-			SerialAccess::EnumerateCOMPorts( logbuff, 1024 );
-			fprintf( stderr, "%s%s\n", strings[t]+3, logbuff );
-		}
-		else
-			fprintf( stderr, "%s\n", strings[t] );
+		fprintf( stderr, "%s\n", strings[t] );
 	}
 }
 
@@ -117,7 +111,7 @@ int verbose = 0;
 
 int main(int argc, char* argv[])
 {
-	DWORD len;
+	int32_t len;
 
 	unsigned long check;
 	unsigned char w;
@@ -130,9 +124,8 @@ int main(int argc, char* argv[])
 
 	int timeoutEnabled = 1;
 
-	char *ComPort = NULL, ComPortBuff[20];
-
-	_fmode = _O_BINARY;
+	const char *ComPort = NULL;
+	char ComPortBuff[20];
 
 	unsigned long cyl = 0, sect = 0, head = 0;
 	int readOnly = 0, createFile = 0;
@@ -147,7 +140,7 @@ int main(int argc, char* argv[])
 	{
 		char *next = (t+1 < argc ? argv[t+1] : NULL );
 
-		if( argv[t][0] == '/' || argv[t][0] == '-' )
+		if( /*argv[t][0] == '/' ||*/ argv[t][0] == '-' )
 		{
 		    char *c;
 			unsigned long a;
@@ -161,11 +154,15 @@ int main(int argc, char* argv[])
 				if( !next )
 					usage();
 				t++;
-				a = atol( next );
-				if( a < 1 )
-					usage();
-				sprintf( ComPortBuff, "COM%d", a );
-				ComPort = &ComPortBuff[0];
+				if (isdigit(*next)) {
+				  a = atol( next );
+				  if( a < 1 )
+				    usage();
+				  sprintf( ComPortBuff, "/dev/ttyS%d", a );
+				  ComPort = &ComPortBuff[0];
+				}
+				else
+				  ComPort = next;
 				break;
 			case 'v': case 'V':
 			    if( next && atol(next) != 0 )
@@ -281,7 +278,7 @@ int main(int argc, char* argv[])
 	while( serial.resetConnection );
 }
 
-void log( int level, char *message, ... )
+void log( int level, const char *message, ... )
 {
 	va_list args;
 
@@ -310,7 +307,12 @@ void log( int level, char *message, ... )
 
 unsigned long GetTime(void)
 {
-	return( GetTickCount() );
+  struct timespec now;
+
+
+  if (clock_gettime(CLOCK_MONOTONIC, &now))
+    return 0;
+  return now.tv_sec * 1000.0 + now.tv_nsec / 1000000.0;
 }
 
 unsigned long GetTime_Timeout(void)

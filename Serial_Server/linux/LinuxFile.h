@@ -26,20 +26,22 @@
 // Visit http://www.gnu.org/licenses/old-licenses/gpl-2.0.html
 //
 
-#include <windows.h>
 #include <stdio.h>
-#include "../library/library.h"
+#include <errno.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include "../library/Library.h"
 
 class FileAccess
 {
 public:
 	int Create( char *p_name )
 	{
-		fp = CreateFileA( p_name, GENERIC_WRITE, 0, 0, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, 0 );
+	  fp = open(p_name, O_CREAT | O_EXCL | O_RDWR, 0666);
 
-		if( fp == INVALID_HANDLE_VALUE )
+		if( fp < 0 )
 		{
-			if( GetLastError() == ERROR_FILE_EXISTS )
+			if( errno == EEXIST )
 			{
 				log( 0, "'%s', file already exists", p_name );
 				return( 0 );
@@ -55,9 +57,9 @@ public:
 
 	void Open( char *p_name )
 	{
-		fp = CreateFileA( p_name, GENERIC_READ|GENERIC_WRITE, 0, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0 );
+		fp = open(p_name, O_RDWR);
 
-		if( fp == INVALID_HANDLE_VALUE )
+		if( fp < 0 )
 			log( -1, "'%s', could not open file", p_name );
 
 		name = p_name;
@@ -67,38 +69,39 @@ public:
 	{
 		if( fp )
 		{
-			if( !CloseHandle( fp ) )
+			if( close( fp ) )
 				log( 0, "'%s', could not close file handle", name ? name : "unknown" );
 		}
 	}
 
 	unsigned long SizeSectors(void)
 	{
-		LARGE_INTEGER li;
+		struct stat64 st;
 		unsigned long i;
 
-		if( !GetFileSizeEx( fp, &li ) )
-			log( -1, "'%s', could not retrieve file size (error %ul)", name, GetLastError() );
+		if( fstat64( fp, &st ) )
+			log( -1, "'%s', could not retrieve file size (error %i)", name, errno );
 
-		if( li.LowPart & 0x1ff )
+		if( st.st_size & 0x1ff )
 			log( -1, "'%s', file size is not a multiple of 512 byte sectors", name );
 
-		if( li.HighPart > 0x1f )
+		if( (st.st_size >> 32) > 0x1f )
 			log( -1, "'%s', file size greater than LBA28 limit of 137,438,952,960 bytes", name );
 
-		i = ((li.HighPart << 23 ) & 0xff800000) | ((li.LowPart >> 9) & 0x7fffff);
+		i = st.st_size >> 9;
 
 		return( (unsigned long) i );
 	}
 
 	void SeekSectors( unsigned long lba )
 	{
-		LARGE_INTEGER dist;
+		off64_t offset, result;
 
-		dist.HighPart = lba >> 23;
-		dist.LowPart = lba << 9;
+		offset = lba;
+		offset <<= 9;
 
-		if( !SetFilePointerEx( fp, dist, NULL, FILE_BEGIN ) )
+		result = lseek64(fp, offset, SEEK_SET);
+		if( result < 0 || result != offset)
 			log( -1, "'%s', Failed to seek to lba=%lu", name, lba );
 	}
 
@@ -106,7 +109,8 @@ public:
 	{
 		unsigned long out_len;
 
-		if( !ReadFile( fp, buff, len, &out_len, NULL ) || len != out_len )
+		out_len = read(fp, buff, len);
+		if( out_len < 0 || len != out_len )
 			log( -1, "'%s', ReadFile failed", name );
 	}
 
@@ -114,13 +118,14 @@ public:
 	{
 		unsigned long out_len;
 
-		if( !WriteFile( fp, buff, len, &out_len, NULL ) || len != out_len )
+		out_len = write(fp, buff, len);
+		if( out_len < 0 || len != out_len )
 			log( -1, "'%s', WriteFile failed", name );
 	}
 
 	FileAccess()
 	{
-		fp = NULL;
+		fp = 0;
 		name = NULL;
 	}
 
@@ -129,7 +134,7 @@ public:
 #define USAGE_MAXSECTORS "137438 MB (LBA28 limit)"
 
 private:
-	HANDLE fp;
+	int fp;
 	char *name;
 };
 

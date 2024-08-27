@@ -23,7 +23,7 @@
 
 #include <stdio.h>
 #include "windows.h"
-#include "../library/Library.h"
+#include "../library/library.h"
 
 #define PIPENAME "\\\\.\\pipe\\xtide"
 

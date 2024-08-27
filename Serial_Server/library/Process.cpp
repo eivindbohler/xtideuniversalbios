@@ -76,7 +76,7 @@ union _buff {
 
 #define ATA_DriveAndHead_Drive 0x10
 
-void logBuff( char *message, unsigned long buffoffset, unsigned long readto, int verboseLevel )
+void logBuff( const char *message, unsigned long buffoffset, unsigned long readto, int verboseLevel )
 {
 	char logBuff[ 514*9 + 10 ];
 	int logCount;
@@ -306,7 +306,7 @@ void processRequests( SerialAccess *serial, Image *image0, Image *image1, int ti
 
 				if( verboseLevel > 0 )
 				{
-					char *comStr = (workCommand & SERIAL_COMMAND_WRITE ? "Write" : "Read");
+					const char *comStr = (workCommand & SERIAL_COMMAND_WRITE ? "Write" : "Read");
 
 					if( workCommand == SERIAL_COMMAND_INQUIRE )
 						log( 1, "Inquire %d: Client Port=0x%x, Client Baud=%s", img == image0 ? 0 : 1,
